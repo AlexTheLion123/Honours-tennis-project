@@ -1,0 +1,126 @@
+---
+title: "Logistic Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ISLR)
+library(MASS)
+```
+
+
+
+```{r }
+train1 <- read.csv("./train_test_data/fast_validation/fast_training_small.csv")
+ val1 <- read.csv("./train_test_data/fast_validation/fast_validation.csv")
+ test1 <- read.csv("./train_test_data/fast_validation/fast_testing.csv")
+ 
+ train2 <- read.csv("./train_test_data/slow_validation/slow_training_small.csv")
+ val2 <- read.csv("./train_test_data/slow_validation/slow_validation.csv")
+ test2 <- read.csv("./train_test_data/slow_validation/slow_testing.csv")
+ 
+ x_train1 <- data.matrix(train1[,1:(ncol(train1)-2)])
+ y_train1 <- data.matrix(train1[,c(ncol(train1)-1, ncol(train1))])
+ colnames(y_train1) <- c("p1_won", "p2_won")
+ x_test1 <- data.matrix(test1[,1:(ncol(test1)-2)])
+ y_test1 <- data.matrix(test1[,c(ncol(test1)-1, ncol(test1))])
+ colnames(y_test1) <- c("p1_won", "p2_won")
+ y_test_actual1 <- data.matrix(unlist(ifelse(y_test1[,2] == 1,1,0)))
+ 
+ x_train2 <- data.matrix(train2[,1:(ncol(train2)-2)])
+ y_train2 <- data.matrix(train2[,c(ncol(train2)-1, ncol(train2))])
+ colnames(y_train2) <- c("p1_won", "p2_won")
+ x_test2 <- data.matrix(test2[,1:(ncol(test2)-2)])
+ y_test2 <- data.matrix(test2[,c(ncol(test2)-1, ncol(test2))])
+ colnames(y_test2) <- c("p1_won", "p2_won")
+ y_test_actual2 <- data.matrix(unlist(ifelse(y_test2[,2] == 1,1,0)))
+ 
+ 
+ x_val1 <- data.matrix(val1[,1:(ncol(val1)-2)])
+ y_val1 <- data.matrix(val1[,c(ncol(val1)-1, ncol(val1))])
+ y_val_actual1 <- data.matrix(unlist(ifelse(y_val1[,2] == 1,1,0)))
+ 
+ x_val2 <- data.matrix(val2[,1:(ncol(val2)-2)])
+ y_val2 <- data.matrix(val2[,c(ncol(val2)-1, ncol(val2))])
+ y_val_actual2 <- ifelse(y_val2[,2] == 1, 1, 0)
+```
+
+
+```{r}
+cor(x_train1)
+
+# col.remove <- c("rtnGmsWon_prob", "serveAdv", "SvGmsWon_prob", "returnWon_prob", "bpConvert_prob", "bpReceive_freq", "firstRally_return", "firstRally_return", "secondRally_return")
+ #
+ # col.index.train <-which(colnames(x_train1) %in% col.remove)
+ # col.index.val <-which(colnames(x_val1) %in% col.remove)
+ # col.index.test <-which(colnames(x_test1) %in% col.remove)
+ # if(length(col.index.train) != 0)
+ # {
+ #      x_train1 <- x_train1[,-col.index.train]
+ #      x_val1 <- x_val1[,-col.index.val]
+ #      x_test1 <- x_test1[,-col.index.test]
+ #      
+ #      head(x_train1)
+ # }# col.remove <- c("rtnGmsWon_prob", "serveAdv", "SvGmsWon_prob", "returnWon_prob", "bpConvert_prob", "bpReceive_freq", "firstRally_return", "firstRally_return", "secondRally_return")
+ #
+ # col.index.train <-which(colnames(x_train1) %in% col.remove)
+ # col.index.val <-which(colnames(x_val1) %in% col.remove)
+ # col.index.test <-which(colnames(x_test1) %in% col.remove)
+ # if(length(col.index.train) != 0)
+ # {
+ #      x_train1 <- x_train1[,-col.index.train]
+ #      x_val1 <- x_val1[,-col.index.val]
+ #      x_test1 <- x_test1[,-col.index.test]
+ #      
+ #      head(x_train1)
+ # }
+```
+
+
+# Fit on full features
+
+```{r}
+full.fit1 <- glm(y_train1[,1]~., as.data.frame(x_train1), family = binomial)
+summary(full.fit1)
+```
+
+# Training accuracy
+
+```{r}
+pred.probs.train1 <- predict(full.fit1, type = "response") # probability of player 1 winning
+ pred.binary.train1 <- ifelse(pred.probs.train1 >= 0.5, 1,0) # binary predictions
+ 
+ 
+ table(pred.binary.train1, y_train1[,1])
+```
+
+# Fit model to validation data
+
+```{r}
+glm.probs1 <- predict(full.fit1, newdata = as.data.frame(x_val1), type = "response")
+ glm.pred1 <- ifelse(glm.probs1 >= 0.5, 1,0)
+ 
+ mean(glm.pred1 == y_val1[,1])
+```
+
+# Fit model to test data
+
+```{r}
+glm.probs2 <- predict(full.fit1, newdata = as.data.frame(x_test1), type = "response")
+ glm.pred2 <- ifelse(glm.probs2 >= 0.5, 1,0)
+ 
+ mean(glm.pred2 == y_test1[,1])
+```
+
+
+```{r}
+prob.actual1 <- cbind(glm.probs1.test, y_test[,1])
+ glm.probs1.test <- predict(full.fit1, newdata = as.data.frame(x_test1), type = "response")
+glm.pred1.test <- ifelse(glm.probs1.test >= 0.5, 1,0)
+ 
+ mean(glm.pred1.test == y_test1[,1])
+ 
+ prob.actual1 <- cbind(glm.probs1.test, y_test1[,1])
+ write.csv(prob.actual1,"./logistic predictions/logistic_fast_allFeatures_predictions.csv", row.names = FALSE)
+```

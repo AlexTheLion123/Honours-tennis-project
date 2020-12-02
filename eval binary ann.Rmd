@@ -1,0 +1,86 @@
+---
+title: "binary ann eval"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DescTools)
+library(rfUtilities)
+```
+
+# data set up
+```{r}
+test1 <- read.csv("./train_test_data/fast_validation/fast_testing.csv")
+test2 <- read.csv("./train_test_data/slow_validation/slow_testing.csv")
+
+df1 <- read.csv("./ann predictions/binary/ann_fast_predictions.csv")
+df2 <- read.csv("./ann predictions/binary/ann_slow_predictions.csv")
+```
+
+
+# Accuracy and confusion matrices
+
+```{r}
+fast.resp <- df1[,3]
+slow.resp <- df2[,3]
+
+fast.pred <- df1[,2]
+slow.pred <- df2[,2]
+
+fast.class <- ifelse(fast.pred >= 0.5, 1, 0)
+slow.class <- ifelse(slow.pred >= 0.5, 1, 0)
+  
+overall.resp <- c(df1[,3], df2[,3])
+overall.pred <- c(df1[,2], df2[,2])
+overall.pred.binary <- ifelse(overall.pred >= 0.5, 1, 0)
+
+# cat("\nConfusion matrix for fast surface:\n")
+# table(Predicted = pred1,
+#       Actual = y_test_actual1)
+# cat("\nConfusion matrix for slow surface:\n")
+# table(Predicted = pred2,
+#       Actual = y_test_actual2)
+
+cat("\nConfusion matrix for overall:\n")
+table(Predicted = overall.pred.binary,
+      Actual = overall.resp)
+
+overall.acc <- mean(overall.pred.binary == overall.resp)
+
+
+
+# cat("\nAccuracy for fast surface:", acc1, "\n")
+# cat("\nAccuracy for slow surface:", acc2, "\n")
+cat("\nFast accuracy:", mean(fast.class == fast.resp), "\n")
+cat("\nBrier score for fast:", BrierScore(resp = fast.resp, pred = fast.pred, scaled = F), "\n")
+
+cat("\nSlow accuracy:", mean(slow.class == slow.resp), "\n")
+cat("\nBrier score for slow:", BrierScore(resp = slow.resp, pred = slow.pred, scaled = F), "\n")
+
+
+
+cat("\nOverall accuracy:", overall.acc, "\n")
+cat("\nBrier score for overall:", BrierScore(resp = overall.resp, pred = overall.pred, scaled = F), "\n")
+cat("\nLog loss for overall:", rfUtilities::logLoss(y = overall.resp, p = overall.pred), "\n")
+```
+
+
+# Brier scores
+
+```{r }
+
+
+# cat("\nBrier Score for fast surface:", BrierScore(resp = fast.resp, pred = fast.pred, scaled = F), "\n")
+# cat("\nBrier Score for slow surface:", BrierScore(resp = slow.pred, pred = slow.pred, scaled = F), "\n")
+
+```
+
+# Log loss
+
+```{r}
+# cat("\nLog loss for fast surface:", rfUtilities::logLoss(y = fast.resp, p = fast.pred), "\n")
+# cat("\nLog loss for slow surface:", rfUtilities::logLoss(y = slow.resp, p = slow.pred), "\n")
+
+```
+

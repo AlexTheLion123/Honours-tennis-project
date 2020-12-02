@@ -1,0 +1,401 @@
+---
+title: "Logistic Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ISLR)
+library(MASS)
+library(tidyverse)
+library(rms)
+library(DescTools)
+library(rfUtilities)
+```
+
+
+
+```{r }
+# train1 <- read.csv("./train_test_data/fast_validation/fast_training_small.csv")
+# val1 <- read.csv("./train_test_data/fast_validation/fast_validation.csv")
+# test1 <- read.csv("./train_test_data/fast_validation/fast_testing.csv")
+# 
+# x_train1 <- data.matrix(train1[,1:(ncol(train1)-2)])
+# #names(x_train1)
+# y_train1 <- data.matrix(train1[,c(ncol(train1)-1, ncol(train1))])
+# colnames(y_train1) <- c("p1_won", "p2_won")
+# x_test1 <- data.matrix(test1[,1:(ncol(test1)-2)])
+# y_test1 <- data.matrix(test1[,c(ncol(test1)-1, ncol(test1))])
+# colnames(y_test1) <- c("p1_won", "p2_won")
+# y_test_actual1 <- data.matrix(unlist(ifelse(y_test1[,2] == 1,1,0)))
+#  
+# x_val1 <- data.matrix(val1[,1:(ncol(val1)-2)])
+# y_val1 <- data.matrix(val1[,c(ncol(val1)-1, ncol(val1))])
+# y_val_actual1 <- data.matrix(unlist(ifelse(y_val1[,2] == 1,1,0)))
+
+ 
+train2 <- read.csv("./train_test_data/slow_validation/slow_training_small.csv")
+val2 <- read.csv("./train_test_data/slow_validation/slow_validation.csv")
+test2 <- read.csv("./train_test_data/slow_validation/slow_testing.csv")
+
+x_train1 <- data.matrix(train2[,1:(ncol(train2)-2)])
+y_train1 <- data.matrix(train2[,c(ncol(train2)-1, ncol(train2))])
+colnames(y_train1) <- c("p1_won", "p2_won")
+x_test1 <- data.matrix(test2[,1:(ncol(test2)-2)])
+y_test1 <- data.matrix(test2[,c(ncol(test2)-1, ncol(test2))])
+colnames(y_test1) <- c("p1_won", "p2_won")
+y_test_actual1 <- data.matrix(unlist(ifelse(y_test1[,2] == 1,1,0)))
+
+x_val1 <- data.matrix(val2[,1:(ncol(val2)-2)])
+y_val1 <- data.matrix(val2[,c(ncol(val2)-1, ncol(val2))])
+y_val_actual1 <- ifelse(y_val1[,2] == 1, 1, 0)
+```
+
+
+```{r}
+cor(x_train1)
+
+ col.remove <- c("rtnGmsWon_prob", "serveAdv", "SvGmsWon_prob", "returnWon_prob", "bpConvert_prob", "bpReceive_freq", "firstRally_return", "firstRally_return", "secondRally_return")
+
+ col.index.train <-which(colnames(x_train1) %in% col.remove)
+ col.index.val <-which(colnames(x_val1) %in% col.remove)
+ col.index.test <-which(colnames(x_test1) %in% col.remove)
+ if(length(col.index.train) != 0)
+ {
+      x_train1 <- x_train1[,-col.index.train]
+      x_val1 <- x_val1[,-col.index.val]
+      x_test1 <- x_test1[,-col.index.test]
+
+      head(x_train1)
+ }
+ 
+ col.remove <- c("rtnGmsWon_prob", "rank","serveAdv", "SvGmsWon_prob", "returnWon_prob", "bpConvert_prob", "bpReceive_freq", "firstRally_return", "secondRally_return")
+
+ col.index.train <-which(colnames(x_train1) %in% col.remove)
+ col.index.val <-which(colnames(x_val1) %in% col.remove)
+ col.index.test <-which(colnames(x_test1) %in% col.remove)
+ if(length(col.index.train) != 0)
+ {
+      x_train1 <- x_train1[,-col.index.train]
+      x_val1 <- x_val1[,-col.index.val]
+      x_test1 <- x_test1[,-col.index.test]
+
+      head(x_train1)
+ }
+```
+
+
+# Test optimal feature set
+
+```{r}
+fit.coef5 <- glm(y_train1[,1]~ rank_points + firstIn_prob + df_prob + firstRally + secondRally, as.data.frame(x_train1), family = binomial)
+summary(fit.coef5)
+mod.fit.coef5 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "df_prob", "firstRally", "secondRally")])
+mod.fit.coef5
+
+probs.val.coef5 <- predict(fit.coef5, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef5 <- ifelse(probs.val.coef5 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef5 == y_val1[,1]))
+
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef5, scaled = F), "\n")
+
+probs.test.final2 <- predict(fit.coef5, newdata = as.data.frame(x_test1), type = "response")
+class.test.final2 <- ifelse(probs.test.final2 >= 0.5, 1,0)
+
+# created hi from previous file
+overall.class <- c(class.test.final, class.test.final2)
+overall.pred <- c(hi, y_test1[,1])
+
+mean(overall.class == overall.pred)
+BrierScore(resp = overall.class, pred = overall.pred)
+
+
+
+
+
+acc.test.final<- mean(class.test.final2 == y_test1[,1])
+cat("\nBrier score:", BrierScore(resp = y_test1[,1], pred = class.test.final2, scaled = F), "\n")
+cat("\ntest accuracy:",acc.test.final)
+```
+
+
+# Fit on full features
+
+```{r}
+full.fit <- glm(y_train1[,1]~., as.data.frame(x_train1), family = binomial)
+summary(full.fit)
+
+mod.full.fit <- lrm(y_train1[,1] ~ x_train1)
+mod.full.fit
+```
+
+# Training accuracy
+
+```{r}
+probs.train <- predict(full.fit, as.data.frame(x_train1), type = "response") # probability of player 1 winning
+class.train <- ifelse(probs.train >= 0.5, 1,0) # binary predictions
+ 
+cat("\ntraining accuracy: ", mean(class.train == y_train1[,1]))
+
+table(class.train, y_train1[,1])
+```
+
+# Fit model to validation data
+
+```{r}
+probs.val <- predict(full.fit, newdata = as.data.frame(x_val1), type = "response")
+class.val <- ifelse(probs.val >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val == y_val1[,1]))
+
+table(class.val, y_val1[,1])
+```
+
+# Fit model to test data
+
+```{r}
+probs.test <- predict(full.fit, newdata = as.data.frame(x_test1), type = "response")
+class.test <- ifelse(probs.test >= 0.5, 1,0)
+
+acc.test.full <- mean(class.test == y_test1[,1])
+ 
+cat("\ntest accuracy:",acc.test.full)
+
+```
+
+# Forward Selection
+
+```{r}
+
+step.model <- suppressWarnings(full.fit %>% stepAIC(trace = FALSE, direction = "forward"))
+summary(step.model)
+coef(step.model)
+
+subset <- x_train1[,c("rank_points","firstIn_prob", "df_prob", "firstRally","secondRally" , "svptWon_prob" , "bpLost_prob", "bpServe_freq")]
+mod.step.fit <- lrm(y_train1[,1] ~ subset)
+mod.step.fit
+
+
+
+# predict training data on forward selection model
+forward.probs <- predict(step.model, newdata = as.data.frame(x_train1), type = "response")
+forward.class <- ifelse(forward.probs >= 0.5, 1, 0)
+
+cat("\nforward selection training accuracy:", mean(forward.class == y_train1[,1]))
+
+
+# predict validation data on forward selection model
+subset.val <- x_val1[,c("rank_points","firstIn_prob", "df_prob", "firstRally","secondRally" , "svptWon_prob" , "bpLost_prob", "bpServe_freq")]
+forward.probs.val <- predict(step.model, newdata = as.data.frame(subset.val), type = "response")
+forward.class.val <- ifelse(forward.probs.val >= 0.5, 1, 0)
+
+cat("\nforward selection validation accuracy:", mean(forward.class.val == y_val1[,1]))
+
+```
+
+# Forward selection first variable on validation (rank_points)
+```{r}
+fit.coef1 <- glm(y_train1[,1]~rank_points, as.data.frame(x_train1), family = binomial)
+summary(fit.coef1)
+mod.fit.coef1 <- lrm(y_train1[,1] ~ x_train1[,"rank_points"])
+mod.fit.coef1
+
+probs.val.coef1 <- predict(fit.coef1, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef1 <- ifelse(probs.val.coef1 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef1 == y_val1[,1]))
+
+
+
+
+#table(class.val.coef1, y_val1[,1])
+```
+
+# Forward selection first two variables on validation (rank_points + firstIn_prob)
+```{r}
+fit.coef2 <- glm(y_train1[,1]~rank_points + firstIn_prob, as.data.frame(x_train1), family = binomial)
+summary(fit.coef2)
+mod.fit.coef2 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points","firstIn_prob")])
+mod.fit.coef2
+
+probs.val.coef2 <- predict(fit.coef2, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef2 <- ifelse(probs.val.coef2 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef2 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+# Forward selection first three variables on validation (rank_points + firstIn_prob + df_prob)
+```{r}
+fit.coef3 <- glm(y_train1[,1]~rank_points + firstIn_prob + firstRally, as.data.frame(x_train1), family = binomial)
+summary(fit.coef3)
+mod.fit.coef3 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob","firstRally")])
+mod.fit.coef3
+
+probs.val.coef3 <- predict(fit.coef3, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef3 <- ifelse(probs.val.coef3 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef3 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+# Forward selection first four variables on validation (rank_points + firstIn_prob + df_prob + firstRally)
+```{r}
+fit.coef4 <- glm(y_train1[,1]~rank_points + firstIn_prob + firstRally + svptWon_prob, as.data.frame(x_train1), family = binomial)
+summary(fit.coef4)
+mod.fit.coef4 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "df_prob", "firstRally")])
+mod.fit.coef4
+
+probs.val.coef4 <- predict(fit.coef4, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef4 <- ifelse(probs.val.coef4 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef4 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+# Forward selection first five variables on validation 
+## (rank_points + firstIn_prob + df_prob + firstRally + secondRally)
+```{r}
+fit.coef5 <- glm(y_train1[,1]~rank_points + firstIn_prob + firstRally + svptWon_prob + bpLost_prob, as.data.frame(x_train1), family = binomial)
+summary(fit.coef5)
+mod.fit.coef5 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "firstRally", "svptWon_prob","bpLost_prob")])
+mod.fit.coef5
+
+probs.val.coef5 <- predict(fit.coef5, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef5 <- ifelse(probs.val.coef5 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef5 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+# Forward selection first six variables on validation 
+## (rank_points + firstIn_prob + df_prob + firstRally + secondRally + svptWon_prob)
+```{r}
+fit.coef6 <- glm(y_train1[,1]~rank_points + firstIn_prob + firstRally +  svptWon_prob + bpLost_prob + bpServe_freq, as.data.frame(x_train1), family = binomial)
+summary(fit.coef6)
+mod.fit.coef6 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "firstRally", "svptWon_prob","bpLost_prob", "bpServe_freq")])
+mod.fit.coef6
+
+probs.val.coef6 <- predict(fit.coef6, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef6 <- ifelse(probs.val.coef6 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef6 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+# Forward selection first six variables on validation 
+## (rank_points + firstIn_prob + df_prob + firstRally + secondRally + svptWon_prob + bpLost_prob)
+```{r}
+fit.coef7 <- glm(y_train1[,1]~rank_points + firstIn_prob + df_prob + firstRally + secondRally + svptWon_prob + bpLost_prob, as.data.frame(x_train1), family = binomial)
+summary(fit.coef7)
+mod.fit.coef7 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "df_prob", "firstRally", "secondRally","svptWon_prob", "bpLost_prob")])
+mod.fit.coef7
+
+probs.val.coef7 <- predict(fit.coef7, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef7 <- ifelse(probs.val.coef7 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef7 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+
+
+
+
+
+# Forward selection first six variables on validation 
+## (rank_points + firstIn_prob + df_prob + firstRally + secondRally + svptWon_prob + bpLost_prob + bpServe_freq)
+```{r}
+fit.coef8 <- glm(y_train1[,1]~rank_points + firstIn_prob + df_prob + firstRally + secondRally + svptWon_prob + bpLost_prob + bpServe_freq, as.data.frame(x_train1), family = binomial)
+summary(fit.coef8)
+mod.fit.coef8 <- lrm(y_train1[,1] ~ x_train1[,c("rank_points", "firstIn_prob", "df_prob", "firstRally", "secondRally","svptWon_prob", "bpLost_prob", "bpServe_freq")])
+mod.fit.coef8
+
+probs.val.coef8 <- predict(fit.coef8, newdata = as.data.frame(x_val1), type = "response")
+class.val.coef8 <- ifelse(probs.val.coef8 >= 0.5, 1,0)
+ 
+cat("\nvalidation accuracy:", mean(class.val.coef8 == y_val1[,1]))
+
+#table(class.val, y_val1[,1])
+```
+
+
+
+```{r}
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef1, scaled = F), "\n")
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef2, scaled = F), "\n")
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef3, scaled = F), "\n")
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef4, scaled = F), "\n")
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef5, scaled = F), "\n")
+cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef6, scaled = F), "\n")
+#cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef7, scaled = F), "\n")
+#cat("\nBrier score:", BrierScore(resp = y_val1[,1], pred = class.val.coef8, scaled = F), "\n")
+```
+
+
+
+# Backward selection
+
+```{r}
+
+```
+
+
+# Writing predictions
+```{r}
+df.val.full <- cbind(probs.val, y_val1[,1])
+df.test.full <- cbind(glm.probs.test, y_test1[,1])
+df.val.forward <- cbind(forward.probs.val, y_val1[,1])
+
+
+# on all features, write predictions
+write.csv(df.val.full,"./logistic predictions/logistic_fast_allFeatures_validationPred.csv", row.names = FALSE) # validation
+write.csv(df.test.full,"./logistic predictions/logistic_fast_allFeatures_testPred.csv", row.names = FALSE) # test
+
+# forward selection
+
+write.csv(cbind(y_test1[,1],prob.actual1,),"./logistic predictions/logistic_fast_allFeatures_predictions.csv", row.names = FALSE)
+
+# backward selection
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,265 @@
+---
+title: "Nueral Network"
+author: "Alex Urban"
+date: "31/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(magrittr))
+suppressMessages(library(keras))
+suppressMessages(library(tensorflow))
+```
+
+# Creating the model
+
+```{r}
+setwd(getwd())
+# for fast surface (hard and grass)
+# train1 <- read.csv("./train_test_data/fast_validation/fast_training_small.csv")
+# val1 <- read.csv("./train_test_data/fast_validation/fast_validation.csv")
+# test1 <- read.csv("./train_test_data/fast_validation/fast_testing.csv")
+
+train1 <- read.csv("./train_test_data/full_validation/full_training_small.csv")
+val1 <- read.csv("./train_test_data/full_validation/full_validation.csv")
+test1 <- read.csv("./train_test_data/full_validation/full_testing.csv")
+
+
+# for slow surface (clay)
+train2 <- read.csv("./train_test_data/slow_validation/slow_training_small.csv")
+val2 <- read.csv("./train_test_data/slow_validation/slow_validation.csv")
+test2 <- read.csv("./train_test_data/slow_validation/slow_testing.csv")
+
+x_train1 <- data.matrix(train1[,1:(ncol(train1)-2)])
+y_train1 <- data.matrix(train1[,c(ncol(train1)-1, ncol(train1))])
+x_test1 <- data.matrix(test1[,1:(ncol(test1)-2)])
+y_test1 <- data.matrix(test1[,c(ncol(test1)-1, ncol(test1))])
+y_test_actual1 <- ifelse(y_test1[,2] == 1, 1, 0)
+
+x_train2 <- data.matrix(train2[,1:(ncol(train2)-2)])
+y_train2 <- data.matrix(train2[,c(ncol(train2)-1, ncol(train2))])
+x_test2 <- data.matrix(test2[,1:(ncol(test2)-2)])
+y_test2 <- data.matrix(test2[,c(ncol(test2)-1, ncol(test2))])
+y_test_actual2 <- ifelse(y_test2[,2] == 1, 1, 0)
+
+
+x_val1 <- data.matrix(val1[,1:(ncol(val1)-2)])
+y_val1 <- data.matrix(val1[,c(ncol(val1)-1, ncol(val1))])
+y_val_actual1 <- ifelse(y_val1[,2] == 1, 1, 0)
+
+
+x_val2 <- data.matrix(val2[,1:(ncol(val2)-2)])
+y_val2 <- data.matrix(val2[,c(ncol(val2)-1, ncol(val2))])
+y_val_actual2 <- ifelse(y_val2[,2] == 1, 1, 0)
+
+```
+
+# Removing some features
+```{r}
+# col.remove <- c("rtnGmsWon_prob", "serveAdv", "returnWon_prob", "bpConvert_prob", "bpReceive_freq")
+# 
+# col.index.train1 <-which(colnames(x_train1) %in% col.remove)
+# col.index.val1 <-which(colnames(x_val1) %in% col.remove)
+# col.index.test1 <-which(colnames(x_test1) %in% col.remove)
+# 
+# col.index.train2 <-which(colnames(x_train2) %in% col.remove)
+# col.index.val2 <-which(colnames(x_val2) %in% col.remove)
+# col.index.test2 <-which(colnames(x_test2) %in% col.remove)
+# 
+# if(length(col.index.train1) != 0)
+# {
+#      x_train1 <- x_train1[,-col.index.train1]
+#      x_val1 <- x_val1[,-col.index.val1]
+#      x_test1 <- x_test1[,-col.index.test1]
+#      
+#      
+#      x_train2 <- x_train2[,-col.index.train2]
+#      x_val2 <- x_val2[,-col.index.val2]
+#      x_test2 <- x_test2[,-col.index.test2]
+#      
+#      head(x_train1)
+# }
+```
+
+
+
+```{r}
+set.seed(2020)
+model1 <- keras_model_sequential()
+model2 <- keras_model_sequential()
+
+model1 %>% 
+  layer_dense(name = "DeepLayer1",
+              units = 100,
+              activation = "tanh",
+              input_shape = c(ncol(x_train1))) %>% 
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(name = "DeepLayer2",
+              units = 30,
+              activation = "tanh") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(name = "DeepLayer3",
+              units = 10,
+              activation = "tanh") %>% 
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(name = "OutputLayer",
+              units = 2,
+              activation = "softmax")
+
+model2 %>% 
+  layer_dense(name = "DeepLayer1",
+              units = 100,
+              activation = "tanh",
+              input_shape = c(ncol(x_train2))) %>% 
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(name = "DeepLayer2",
+              units = 30,
+              activation = "tanh") %>% 
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(name = "DeepLayer3",
+              units = 10,
+              activation = "tanh") %>% 
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(name = "OutputLayer",
+              units = 2,
+              activation = "softmax")
+
+
+```
+
+
+# Compiling the model
+
+Before fitting the training data, the model requires compilation. For our model, categorical cross-entropy is used as the loss function (since this is a multi-class classification problem). A standard ADAM optimizer is used for gradient descent and accuracy is used as the metric.
+
+```{r}
+
+model1 %>% compile(loss = "binary_crossentropy",
+                  optimizer = "adam",
+                  metrics = c("accuracy"))
+
+model2 %>% compile(loss = "binary_crossentropy",
+                  optimizer = "adam",
+                  metrics = c("accuracy"))
+
+```
+
+# Fitting the data
+We run the data with 10 epochs and a batch size of 256. What does this refer to?
+A simple plot can be created to show the loss and the accuracy over the epochs.
+```{r}
+history1 <- model1 %>% 
+  fit(x_train1,
+      y_train1,
+      epoch = 200,
+      batch_size = 64)
+
+plot(history1)
+
+history2 <- model2 %>% 
+  fit(x_train2,
+      y_train2,
+      epoch = 200,
+      batch_size = 64)
+
+plot(history2)
+```
+
+# Model evaluation 
+The predict_proba() function can be used to display the probability of each player winning for each match. Below we have returned the probabilities for player 1 winning the match in the first 10 matches. If the probability of player 1 winning is predicted to be less than 50%, player 2 will be predicted to be the winner, hence the predicted value is 0.
+
+## Fast surface
+```{r}
+#uncomment when happy with validation
+eval1 <- evaluate(model1, x_test1, y_test1)
+eval1
+
+pred1 <- model1 %>%
+  predict_classes(x_test1)
+
+
+prob1 <- model1 %>%
+   predict_proba(x_test1)
+
+
+table(Predicted = pred1,
+      Actual = y_test_actual1)
+
+
+eval1.v <- evaluate(model1, x_val1, y_val1)
+eval1.v
+
+pred1.v <- model1 %>%
+  predict_classes(x_val1)
+
+
+prob1.v <- model1 %>%
+   predict_proba(x_val1)
+
+
+table(Predicted = pred1.v,
+      Actual = y_val_actual1)
+```
+
+## Slow surface 
+```{r}
+# uncomment when happy with val
+eval2 <- evaluate(model2, x_test2, y_test2)
+eval2
+
+pred2 <- model2 %>%
+  predict_classes(x_test2)
+
+prob2 <- model2 %>%
+   predict_proba(x_test2)
+
+
+
+table(Predicted = pred2,
+      Actual = y_test_actual2)
+
+
+eval2.v <- evaluate(model2, x_val2, y_val2)
+eval2.v
+
+pred2.v <- model2 %>%
+  predict_classes(x_val2)
+
+prob2.v <- model2 %>%
+   predict_proba(x_val2)
+
+
+
+table(Predicted = pred2.v,
+      Actual = y_val_actual2)
+```
+
+# Write results
+Don't run this again unless neural network is altered. 
+```{r}
+prob.actual1 <- cbind(prob1, y_test_actual1)
+write.csv(prob.actual1,"./ann predictions/ann_fast_predictions.csv", row.names = FALSE)
+
+prob.actual2 <- cbind(prob2, y_test_actual2)
+write.csv(prob.actual2,"./ann predictions/ann_slow_predictions.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,210 @@
+---
+title: "Nueral Network"
+author: "Alex Urban"
+date: "31/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(magrittr))
+suppressMessages(library(keras))
+suppressMessages(library(tensorflow))
+```
+
+# Creating the model
+
+```{r}
+setwd(getwd())
+
+train1 <- read.csv("./train_test_data/full/full_training.csv")
+test1 <- read.csv("./train_test_data/full/full_testing.csv")
+
+x_train1 <- data.matrix(train1[,1:(ncol(train1)-2)])
+y_train1 <- data.matrix(train1[,c(ncol(train1)-1, ncol(train1))])
+x_test1 <- data.matrix(test1[,1:(ncol(test1)-2)])
+y_test1 <- data.matrix(test1[,c(ncol(test1)-1, ncol(test1))])
+y_test_actual1 <- ifelse(y_test1[,2] == 1, 1, 0)
+
+train2 <- read.csv("./train_test_data/surface correlation/surfaceCorr_training.csv")
+test2 <- read.csv("./train_test_data/surface correlation/surfaceCorr_testing.csv")
+
+x_train2 <- data.matrix(train2[,1:(ncol(train2)-2)])
+y_train2 <- data.matrix(train2[,c(ncol(train2)-1, ncol(train2))])
+x_test2 <- data.matrix(test2[,1:(ncol(test2)-2)])
+y_test2 <- data.matrix(test2[,c(ncol(test2)-1, ncol(test2))])
+y_test_actual2 <- ifelse(y_test2[,2] == 1, 1, 0)
+
+
+```
+
+
+```{r}
+set.seed(2020)
+model1 <- keras_model_sequential()
+model2 <- keras_model_sequential()
+
+
+model1 %>% 
+  layer_dense(name = "DeepLayer1",
+              units = 30,
+              activation = "tanh",
+              input_shape = c(ncol(x_train1))) %>% 
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(name = "DeepLayer2",
+              units = 30,
+              activation = "tanh") %>%
+  layer_dropout(rate = 0.1) %>%
+  layer_dense(name = "DeepLayer3",
+              units = 10,
+              activation = "tanh") %>% 
+  layer_dense(name = "OutputLayer",
+              units = 2,
+              activation = "softmax")
+
+model2 %>% 
+  layer_dense(name = "DeepLayer1",
+              units = 30,
+              activation = "tanh",
+              input_shape = c(ncol(x_train2))) %>% 
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(name = "DeepLayer2",
+              units = 30,
+              activation = "tanh") %>% 
+  layer_dropout(rate = 0.1) %>%
+  layer_dense(name = "DeepLayer3",
+              units = 10,
+              activation = "tanh") %>% 
+  layer_dense(name = "OutputLayer",
+              units = 2,
+              activation = "softmax")
+
+summary(model1)
+```
+
+
+# Compiling the model
+
+Before fitting the training data, the model requires compilation. For our model, categorical cross-entropy is used as the loss function (since this is a multi-class classification problem). A standard ADAM optimizer is used for gradient descent and accuracy is used as the metric.
+
+```{r}
+
+model1 %>% compile(loss = "binary_crossentropy",
+                  optimizer = "adam",
+                  metrics = c("accuracy"))
+
+model2 %>% compile(loss = "binary_crossentropy",
+                  optimizer = "adam",
+                  metrics = c("accuracy"))
+
+
+```
+
+# Fitting the data
+We run the data with 10 epochs and a batch size of 256. What does this refer to?
+A simple plot can be created to show the loss and the accuracy over the epochs.
+```{r}
+history1 <- model1 %>% 
+  fit(x_train1,
+      y_train1,
+      epoch = 200,
+      batch_size = 64,
+      validation_split = 0.1)
+
+plot(history1)
+
+history2 <- model2 %>% 
+  fit(x_train2,
+      y_train2,
+      epoch = 200,
+      batch_size = 64,
+      validation_split = 0.1)
+
+plot(history2)
+
+
+```
+
+# Model evaluation 
+The predict_proba() function can be used to display the probability of each player winning for each match. Below we have returned the probabilities for player 1 winning the match in the first 10 matches. If the probability of player 1 winning is predicted to be less than 50%, player 2 will be predicted to be the winner, hence the predicted value is 0.
+
+## Full data
+```{r}
+eval1 <- evaluate(model1, x_test1, y_test1)
+eval1
+
+pred1 <- model1 %>% 
+  predict_classes(x_test1)
+
+prob1 <- model1 %>% 
+   predict_proba(x_test1)
+
+table(Predicted = pred1,
+      Actual = y_test_actual1)
+```
+
+## Surface correlation data
+```{r}
+eval2 <- evaluate(model2, x_test2, y_test2)
+eval2
+
+pred2 <- model2 %>% 
+  predict_classes(x_test2)
+
+prob2 <- model2 %>% 
+   predict_proba(x_test2)
+
+table(Predicted = pred2,
+      Actual = y_test_actual2)
+```
+
+# Write results
+NB: Don't run this again unless neural network is altered. Still need to do drop out rate.
+```{r}
+setwd(getwd())
+prob.actual1 <- cbind(prob1, y_test_actual1)
+write.csv(prob.actual1,"./ann predictions/ann_full_predictions.csv", row.names = FALSE)
+
+prob.actual2 <- cbind(prob2, y_test_actual2)
+write.csv(prob.actual2,"./ann predictions/ann_surfaceCorr_predictions.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+# Evaluation
+Only run from here once results have been written
+```{r}
+df6 <- read.csv("ann_stratified_noRA_predictions.csv")
+df7 <- read.csv("ann_surfaceCorr_noRA_predictions.csv")
+```
+
+# Brier scores
+```{r}
+library(DescTools)
+
+cat("\nBrier Score for all surfaces:", BrierScore(df6[,3], df6[,2], scaled = F))
+cat("\nBrier Score for surfa weight:", BrierScore(df7[,3], df7[,2], scaled = F))
+
+
+```
+# Log loss
+```{r}
+library(rfUtilities)
+
+cat("\nLog loss for all surfaces:", rfUtilities::logLoss(y = df6[,3], p = df6[,2]))
+cat("\nLog loss for surfa weight:", rfUtilities::logLoss(y = df7[,3], p = df7[,2]))
+
+```
+
+
+
+
+
+
+
+
+

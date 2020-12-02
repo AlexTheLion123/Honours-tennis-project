@@ -1,0 +1,250 @@
+---
+title: "Subset-Features-models"
+author: "Bridgette Mgidi"
+date: "01/12/2020"
+output: html_document
+---
+
+```{r}
+
+require(xgboost)
+require(e1071)
+require(performance)
+require(glmnet)
+require(tree)
+require(randomForest)
+require(leaps)
+library(e1071)
+library(xgboost)
+library(randomForest)
+library(tree)
+library(tidyverse)
+library(performance)
+library(caret)
+library(glmnet)
+library(leaps)
+library(MASS)
+
+train.data <- read.csv("fast_training_small.csv")
+Data.train <- train.data[,-ncol(train.data)]
+
+valid.data <- read.csv("fast_validation.csv")
+Data.valid <- train.data[,-ncol(train.data)]
+
+test.data <- read.csv("fast_testing.csv")
+Test.Data <- test.data[,-ncol(test.data)]
+
+Data.train$p1_won <- as.factor(Data.train$p1_won)
+Data.valid$p1_won <- as.factor(Data.valid$p1_won)
+Test.Data$p1_won <- as.factor(Test.Data$p1_won)
+
+```
+
+X,Y Test Data and X,Y Training Data
+```{r}
+X.train <- model.matrix(p1_won~., Data.train)
+X.valid <- model.matrix(p1_won~., Data.valid)
+Y.train <- Data.train[,ncol(Data.train)]
+Y.valid <- Data.valid[,ncol(Data.valid)]
+
+X.test <- model.matrix(p1_won ~., Test.Data)
+Y.test <- as.factor(Test.Data$p1_won)
+```
+Logistic regression
+hypothesis used:
+
+$$h_{\theta}(x) = g(\theta^Tx) \frac{1}{1+e^{-\theta^Tx}}$$
+$$P(y=1|x;\theta) = h_\theta(x)$$ which the probability that player 1 wins.
+$$P(y=0|x;\theta) = 1 - h_\theta(x)$$ which the probability that player 2 wins (player 1 loses).
+
+```{r full regression model}
+#Now I need to fit a logistic regression model.
+
+#First, fit full model
+full.fit <- glm(p1_won ~., data = Data.train, family = binomial)
+summary(full.fit)
+par(mfrow = c(2,2))
+plot(full.fit)
+
+# Make predictions
+probs.full <- full.fit %>% predict(Test.Data, type = "response")
+pred.full <- ifelse(probs.full > 0.6, 1, 0)
+# Model accuracy
+obs.full <- Test.Data$p1_won
+mean(pred.full == obs.full)
+```
+
+Stepwise variable selection. Select variables that contribute most to model, using AIC
+
+```{r, stepwise and adjusted r squared model}
+step.model <- full.fit %>% stepAIC(trace = FALSE)
+coef(step.model)
+coef(summary(step.model))
+par(mfrow = c(2,2))
+plot(step.model)
+
+# Make predictions
+step.probs <- predict(step.model, Test.Data, type = "response")
+pred.step <- ifelse(step.probs > 0.6, 1, 0)
+# Prediction accuracy
+obs.step <- Test.Data$p1_won
+mean(pred.step == obs.step)
+
+###djusted R^2
+#############################################################################
+###
+#Linear Probability Model
+
+model_sum_AMT <- summary(regsubsets(Data.train$p1_won ~ ., data =
+Data.train, nvmax=ncol(Data.train)-1))
+plot(model_sum_AMT$adjr2, xlab = "Number of Variables", ylab = "Adj Rsquared", main="P1 WON")
+cbind(max(model_sum_AMT$adjr2), which.max(model_sum_AMT$adjr2))
+model_sum_AMT$which[which.max(model_sum_AMT$adjr2), ]
+
+#Fit model using maximum adjuste R^2 variables
+adjustedr2_FLAG <- glm(p1_won ~ 1 + age + rank +rank_points + firstIn_prob + df_prob + firstRally + secondRally +serveAdv + bpLost_prob + bpServe_freq + rtnGmsWon_prob, family = binomial(link = "logit"), data = Data.valid)
+round(coef(summary(adjustedr2_FLAG)), 6)
+
+##One insignificant feature at 10% significance level: bpServe_freq
+adjustedr2_FLAG2 <- glm(p1_won ~ 1 + age + rank +rank_points + firstIn_prob + df_prob + firstRally + secondRally +serveAdv + bpLost_prob +  rtnGmsWon_prob, family = binomial(link = "logit"), data = Data.valid)
+summary(adjustedr2_FLAG2)
+par(mfrow = c(2,2))
+plot(adjustedr2_FLAG2)
+
+#Make predictions
+
+adj.probs <- predict(adjustedr2_FLAG2, Test.Data, type = "response")
+pred.adj <- ifelse(adj.probs > 0.6, 1, 0)
+# Prediction accuracy
+obs.adj <- Test.Data$p1_won
+mean(pred.adj == obs.adj)
+
+```
+
+
+Regularization: 
+Lasso regression:the coefficients of some less contributive variables are forced to be exactly zero. Only the most significant variables are kept in the final model.
+```{r lasso regression model}
+
+init.fit <- glmnet(X.train, Y.train, family = "binomial", alpha = 1, lambda = NULL) #Lasso penalised
+# Find the the optimal amount of shrinkage using cross-validation (lambda)
+opt.lambda <- cv.glmnet(X.train, Y.train, alpha = 1, family = "binomial")
+plot(opt.lambda)
+
+#Fit Final model
+log.model <- glmnet(X.valid, Y.valid, alpha = 1, family = "binomial",lambda = opt.lambda$lambda.min)
+coef(log.model)
+
+# Make predictions on the test data
+
+probs <- log.model %>% predict(newx = X.test)
+pred.classes <- ifelse(probs > 0.6, 1, 0)
+# Model accuracy
+
+mean(pred.classes == Y.test)
+
+```
+
+Moving on to Decision trees. First model considered is bagged model
+
+```{r, bagged model}
+
+set.seed(2020)
+
+bag_model <- randomForest(p1_won ~ ., data = Data.train,mtry = ncol(Data.train) - 1, #for bagging, use all predictors
+ntree = 1000, #number of trees
+importance = TRUE, #keep track of reduction in loss function
+do.trace = 100)  #print out regular progress
+
+#Choosing number of trees
+head(bag_model$err.rate)
+err.m <- as.data.frame(bag_model$err.rate)
+m <- which.min(err.m$OOB)
+plot(bag_model$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error')
+abline(v = m, col="red", lwd=3, lty=2)
+
+#final model with optimal number of trees
+bag_model_fin <- randomForest(p1_won ~ ., data = Data.train,mtry = ncol(Data.train) - 1, #for bagging, use all predictors
+ntree = m, #number of trees
+importance = TRUE, #keep track of reduction in loss function
+do.trace = 100)  #print out regular progress
+
+
+## Variable importance plot
+varImpPlot(bag_model_fin, type = 2) #type=2: Reduction in gini index
+bag_varimp <- randomForest::importance(bag_model_fin, type=2)
+bag_varimp <- bag_varimp[order(bag_varimp, decreasing=FALSE),]
+barplot(bag_varimp, horiz = T, col = 'navy', las = 1,
+xlab = 'Mean decrease in Gini index', cex.lab = 1, cex.axis = 0.8,
+main = 'Tennis Match Outcome Features', cex.main = 1, cex.names = 0.5)
+
+bag_pred <- predict(bag_model_fin, newdata = X.test)
+mean(bag_pred == Y.test)
+confusionMatrix(bag_pred, Y.test)
+```
+
+
+Random forest fit
+
+```{r Random Forest}
+set.seed(2020)
+rf_model <- randomForest(p1_won ~ ., data=Data.train,
+ntree = 1000,
+importance = TRUE,
+do.trace = 100)
+varImpPlot(rf_model, type=2)
+rf_varimp <- randomForest::importance(rf_model, type=2)
+
+#compare error rate of bagging tree and random forest
+plot(rf_model$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error')
+lines(bag_model$err.rate[, 'OOB'], col = 'red', type = 's')
+legend('topright', legend = c('Bagging', 'Random Forest'), col = c('red', 'black'), lwd = 2)
+
+
+#choose number of trees for random forest
+err.rf <- as.data.frame(rf_model$err.rate)
+m.rf <- which.min(err.rf$OOB)
+plot(rf_model$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error')
+abline(v = m.rf, col="red", lwd=3, lty=2)
+
+#fit random forest with optimal number of trees
+rf_model_fin <- randomForest(p1_won ~ ., data=Data.train,
+ntree = m.rf,
+importance = TRUE,
+do.trace = 100)
+varImpPlot(rf_model_fin, type=2)
+rf_varimp_fin <- randomForest::importance(rf_model_fin, type=2)
+
+rf_pred_fin <- predict(rf_model_fin, newdata = X.test)
+mean(rf_pred_fin == Y.test)
+confusionMatrix(rf_pred_fin, Y.test)
+```
+
+
+Boosted trees
+```{r Boosting}
+
+xgb_grid <- expand.grid(nrounds = c(500, 1000, 2500),  #B - number of trees
+                        max_depth = c(1, 6),      #d - interaction depth
+                        eta = c(0.1, 0.01),       #lambda - learning rate
+                        gamma = 0.001,            #mindev
+                        colsample_bytree = 1,     #proportion random features per tree
+                        min_child_weight = 1,     #also controls tree depth
+                        subsample = 1             #bootstrap proportion
+)
+
+ctrl <-  trainControl(method = 'cv', number = 5, verboseIter = T)
+
+system.time
+(
+  xgb_model <- train(p1_won ~ ., data = Data.train,
+                      method = 'xgbTree',
+                      trControl = ctrl,
+                      verbose = F,
+                      tuneGrid = xgb_grid)
+)
+
+xgb_model$bestTune
+xgb_pred <- predict(xgb_model, X.test)
+confusionMatrix(xgb_pred,Y.test)
+```

@@ -1,0 +1,1483 @@
+---
+title: "Features"
+author: "Alex Urban"
+date: "19 October 2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(dplyr))
+suppressMessages(library(lubridate))
+```
+
+# Data set up. 
+Remove unnecessary columns.
+Remove rows containing NA.
+
+```{r, echo = TRUE}
+atp2019 <- read.csv("./atp matches/atp_matches_2019.csv")
+atp2018 <- read.csv("./atp matches/atp_matches_2018.csv")
+atp2017 <- read.csv("./atp matches/atp_matches_2017.csv")
+atp2016 <- read.csv("./atp matches/atp_matches_2016.csv")
+atp2015 <- read.csv("./atp matches/atp_matches_2015.csv")
+atp2014 <- read.csv("./atp matches/atp_matches_2014.csv")
+atp2013 <- read.csv("./atp matches/atp_matches_2013.csv")
+atp2012 <- read.csv("./atp matches/atp_matches_2012.csv")
+atp2011 <- read.csv("./atp matches/atp_matches_2011.csv")
+atp2010 <- read.csv("./atp matches/atp_matches_2010.csv")
+
+numYearsTraining <- 7
+
+
+#list version
+atplist <- list(
+  "atp2019" = atp2019,
+  "atp2018" = atp2018,
+  "atp2017" = atp2017,
+  "atp2016" = atp2016,
+  "atp2015" = atp2015,
+  "atp2014" = atp2014,
+  "atp2013" = atp2013,
+  "atp2012" = atp2012,
+  "atp2011" = atp2011,
+  "atp2010" = atp2010
+)
+
+
+Filter_Data <- function(dataset)
+{
+  a <- which(grepl("RET", dataset$score))
+  b <- which(grepl("W/O", dataset$score))
+  c <- c(a,b)
+  if(length(c)!=0)
+  {
+    dataset <- dataset[-c,]
+  }
+  
+  return(dataset)
+}
+
+atplist <- lapply(atplist, Filter_Data)
+
+if(numYearsTraining != 9)
+{
+  index <- seq(numYearsTraining+2,10, by = 1)
+  atplist <- atplist[-index]
+}
+
+remove_cols_1 <- function(x)
+{
+  x <- x[,-which(names(x) %in% c("draw_size","winner_seed","winner_entry","winner_ioc","loser_seed","loser_entry","loser_ioc","round","minutes", "score", "best_of", "winner_hand", "loser_hand", "winner_ht", "loser_ht"))]
+  return(x)
+}
+remove_na <- function(x)
+{
+  if(length(which(is.na(x))) == 0)
+  {
+    x <- x
+  } else
+  {
+    x <- x[-which(is.na(x), arr.ind = T)[,1],]
+  }
+  return(x)
+}
+which_na <- function(x)
+{
+  return(table(which(is.na(x), arr.ind = T)[,2]))
+}
+
+atplist <- lapply(atplist, remove_cols_1)
+atplist <- lapply(atplist, remove_na)
+
+lapply(atplist, which_na)
+
+
+profile_generator <- function(dataset, player1_id, player2_id)
+{
+  temp <- dataset[which(dataset$winner_id == player1_id | dataset$loser_id == player1_id | dataset$winner_id == player1_id | dataset$loser_id == player2_id),]
+  return(temp)
+}
+
+```
+
+# Preliminary features
+These are not to be used in the modeling process. They are simply used to derive other features.
+
+For lists, they need to be removed at the end.
+
+```{r}
+
+#list version
+prelim_cols <- function(x)
+{
+  x$w_total_2nd <- x[,"w_svpt"] - x[,"w_1stIn"]
+  x$l_total_2nd <- x[,"l_svpt"] - x[,"l_1stIn"]
+  
+  x$w_2ndLost <- x[,"w_total_2nd"] - x[,"w_2ndWon"]
+  x$l_2ndLost <- x[,"l_total_2nd"] - x[,"l_2ndWon"]
+  
+  x$w_1stWon_prob <- x$w_1stWon/x$w_svpt #for point based
+  x$l_1stWon_prob <- x$l_1stWon/x$l_svpt #for point based
+  
+  x$w_2ndWon_prob <- x$w_2ndWon/x$w_total_2nd #for point based
+  x$l_2ndWon_prob <- x$l_2ndWon/x$l_total_2nd #for point based
+  
+  x$w_1stWon_givenIn_prob <- x$w_1stWon/x$w_1stIn #for point based
+  x$l_1stWon_givenIn_prob <- x$l_1stWon/x$l_1stIn #for point based
+  
+  return(x)
+}
+
+atplist <- lapply(atplist, prelim_cols)
+
+```
+
+
+# Add new columns to dataset
+
+```{r}
+
+#list version
+add_cols <- function(x)
+{
+  #preliminary columns (not to be added to feature set)
+  w_2ndIn <- x$w_total_2nd - x$w_df 
+  l_2ndIn <- x$l_total_2nd - x$l_df 
+  
+  
+  
+  # 1. proportion of first serves in
+  x$w_1stIn_prob <- x$w_1stIn/x$w_svpt
+  x$l_1stIn_prob <- x$l_1stIn/x$l_svpt
+  
+  # 2. proportion of aces
+  x$w_ace_prob <- x$w_ace/x$w_svpt
+  x$l_ace_prob <- x$l_ace/x$l_svpt
+  
+  # 3. proportion of double faults
+  x$w_df_prob <- x$w_df/x$w_svpt
+  x$l_df_prob <- x$l_df/x$l_svpt
+  
+  # 4. rally ability on 1st serve
+  x$w_1stRally <- (x$w_1stWon-x$w_ace)/(x$w_1stIn-x$w_ace)
+  x$l_1stRally <- (x$l_1stWon-x$l_ace)/(x$l_1stIn-x$l_ace)
+  
+  # 5. rally ability on 2nd serve
+  x$w_2ndRally <- x$w_2ndWon/(x$w_total_2nd-x$w_df)
+  x$l_2ndRally <- x$l_2ndWon/(x$l_total_2nd-x$l_df)
+  
+  # 6. rally ability on 1st return
+  x$w_1stRally_return <- 1 - x$l_1stRally
+  x$l_1stRally_return <- 1 - x$w_1stRally
+  
+  # 7. rally ability on 2nd return
+  x$w_2ndRally_return <- 1 - x$l_2ndRally
+  x$l_2ndRally_return <- 1 - x$w_2ndRally
+  
+  # 8. probability of winning point on serve
+  x$w_svptWon_prob <- x$w_1stWon_prob + (1-x$w_1stIn_prob)*x$w_2ndWon_prob
+  x$l_svptWon_prob <- x$l_1stWon_prob + (1-x$w_1stIn_prob)*x$l_2ndWon_prob
+  
+  # 9. probability of winning point on return
+  x$w_returnWon_prob <- 1 - x$l_svptWon_prob #pr(winning point on return of first serve) = 1 - pr(opponent 1st won) - pr(opponent 1st off)
+  x$l_returnWon_prob <- 1 - x$w_svptWon_prob 
+  
+  # 10. serve advantage
+  x$w_serveAdv <- x$w_svptWon_prob - x$l_returnWon_prob
+  x$l_serveAdv <- x$l_svptWon_prob - x$w_returnWon_prob
+  
+  # 11. proportion of break points lost when serving
+  x$w_bpLost_prob <- ifelse(x$w_bpFaced == 0, 0, (x$w_bpFaced - x$w_bpSaved)/x$w_bpFaced)
+  x$l_bpLost_prob <- ifelse(x$l_bpFaced == 0, 0, (x$l_bpFaced - x$l_bpSaved)/x$l_bpFaced)
+  
+  # 12. frequency of break points when serving
+  x$w_bpServe_freq <- x$w_bpFaced/x$w_svpt
+  x$l_bpServe_freq <- x$l_bpFaced/x$l_svpt
+  
+  # 13. probability of losing a break point when receiving
+  x$w_bpConvert_prob <- 1- x$l_bpLost_prob
+  x$l_bpConvert_prob <- 1 - x$w_bpLost_prob
+  
+  # 14. frequency of break points when receiving
+  x$w_bpReceive_freq <- x$l_bpServe_freq
+  x$l_bpReceive_freq <- x$w_bpServe_freq
+  
+  # 15. probability of winning a service game
+  x$w_SvGmsWon_prob <- 1 - (x$w_bpFaced - x$w_bpSaved)/x$w_SvGms
+  x$l_SvGmsWon_prob <- 1 - (x$l_bpFaced - x$l_bpSaved)/x$l_SvGms
+  
+  # 16. probability of losing a return game
+  x$w_rtnGmsWon_prob <- 1 - x$l_SvGmsWon_prob
+  x$l_rtnGmsWon_prob <- 1 - x$w_SvGmsWon_prob
+  
+  return(x)
+    
+}
+
+
+atplist <- lapply(atplist, add_cols)
+
+```
+
+# Data cleaning 
+## Note: Haven't yet cleaned illogical values, only impossible ones.
+
+We can remove all total columns, since all further info will be gained from the probability columns. 
+
+```{r}
+#list version
+remove_cols_2 <- function(x)
+{
+  x <- x[,-which(names(x) %in% c("w_ace", "w_df", "w_svpt", "w_1stIn", "w_1stWon", "w_2ndWon", "w_SvGms", "w_bpSaved", "w_bpFaced", "l_ace", "l_df", "l_svpt",  "l_1stIn", "l_1stWon", "l_2ndWon", "l_SvGms", "l_bpSaved", "l_bpFaced"))]
+  return(x)
+}
+ 
+atplist <- lapply(atplist, remove_cols_2)
+lapply(atplist, which_na)
+atplist <- lapply(atplist, remove_na)
+lapply(atplist, which_na)
+```
+
+## Remove rows invovling players where:
+1. player has never won a match (taken out)
+2. player has never lost a match (taken out)
+3. player's first match in 2019 (impossible to make a prediction if no data on player)
+
+If 2 or 3 is true, it implies there is too little data on player to make accurate prediction, since any player with a decent amount of matches has both won and lost, regardless of skill. 
+
+### Update
+We haven't implemented find1 and find2 yet because it removes too many players, almost a third of all the players. This is probably due to the fact that there are many players who only have a few matches on the ATP circuit. 
+
+We can run these functions after we have results from the preliminary analysis to see how much better our model does on matches where both players have a decent amount of match history.
+
+So, for now, we only remove players who have their first match in 2019.
+
+```{r}
+#find1 <- function(dataset) #returns id's of all players that never won a match. tested: works
+#{
+#    temp <- which(!is.element(dataset$loser_id, dataset$winner_id))
+#    
+#    return(dataset$loser_id[temp])
+#}
+#
+#find2 <- function(dataset) #returns id's of all players that never lost a match. tested: works
+#{
+#   
+#    temp <- which(!is.element(dataset$winner_id, dataset$loser_id))
+#    
+#    return(dataset$winner_id[temp])
+#}
+
+#returns id's of players that played their first match in 2019
+find3 <- function() # tested: works.
+{
+  player_vec2019 <- unique(c(atplist$atp2019$winner_id, atplist$atplist$atp2019$loser_id)) # all 2019 id's 
+  
+  temp_df <- bind_rows(atplist[-1]) # all datasets excluding 2019
+  temp_atptotal <- bind_rows(temp_df) # full dataset
+  player_vec_b4 <- unique(c(temp_atptotal$winner_id, temp_atptotal$loser_id)) # all id's before 2019
+
+  first2019_ids <- player_vec2019[which(!is.element(player_vec2019, player_vec_b4))]
+  return(first2019_ids)
+}
+
+
+#removes all rows from dataset involving player id's from vec
+remove_ids <- function(dataset, vec) #tested: works.
+{
+  index <- unique(c(which(is.element(dataset$winner_id, vec)), which(is.element(dataset$loser_id, vec))))
+  if(length(index) != 0)
+  {
+    dataset <- dataset[-index,]
+  }
+  return(dataset)
+}
+
+```
+
+We see that matches involving 7 players need to be removed, since they have no match data prior to 2019.
+
+```{r}
+temp_atptotal <- bind_rows(atplist)
+#vec1 <- find1(temp_atptotal)
+
+#vec2 <- find2(temp_atptotal)
+vec3 <- find3()
+#vec_final <- unique(c(vec1,vec2,vec3))
+length(vec3)
+
+atplist <- lapply(atplist, remove_ids, vec = vec3)
+
+vec3 <- find3()
+length(vec3)
+```
+
+With clean(), the argument dataset refers to the full dataset, including training and testing data.
+
+## Update 
+the clean() function has been removed for now
+
+```{r}
+# clean <- function(dataset)
+# {
+#   while(length(vec_final) != 0)
+#   {
+#     temp_atptotal <- bind_rows(dataset)
+#     vec1 <- find1(temp_atptotal)
+#   
+#     vec2 <- find2(temp_atptotal)
+#     vec3 <- find3()
+#     vec_final <- unique(c(vec1,vec2,vec3))
+#     cat("number of player ID's to be removed:", length(vec_final), "\n")
+#   
+#     dataset <- lapply(dataset, remove_ids, vec = vec_final)
+#   }
+#   return(dataset)
+# }
+# 
+# atplist <- clean(atplist)
+```
+
+# Remove records with no surface
+Some records have a recorded surface of "None" which is clearly incorrect. The cleanSurface() removes these records.
+```{r}
+cleanSurface <- function(x)
+{
+  index <- which(x$surface == "None" | x$surface == "")
+  if(length(index) != 0)
+  {
+    x <- x[-index,]
+  }
+  return(x)
+}
+
+atplist <- lapply(atplist, cleanSurface)
+```
+
+# Remove records played on carpet
+Too few records played on this surface
+```{r}
+clean.carpet <- function(x)
+{
+  index <- which(x$surface == "Carpet")
+  if(length(index) != 0)
+  {
+    x <- x[-index,]
+  }
+  return(x)
+}
+
+atplist <- lapply(atplist, clean.carpet)
+```
+
+
+# Cleaning with respect to years of training data
+# Additional cleaning
+
+Below is a function to clean the data with respect to the number of years of training. For example, some players may be coming back in 2019 from over a year off due to injury, and thus have no records for 2018. Such a player would need to be removed from the testing dataset since they have no training data.
+
+```{r}
+clean_numYears <- function(num_years_training)
+{
+  player_vec2019 <- unique(c(atplist$atp2019$winner_id, atplist$atp2019$loser_id)) # all 2019 id's 
+  temp_df <- atplist$atp2019[FALSE,]
+  
+  if(num_years_training == 1)
+  {
+    temp_df <- atplist$atp2018
+  }
+  else if(num_years_training == 2)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017)
+  }
+  else if(num_years_training == 3)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016)
+  }
+  else if(num_years_training == 4)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015)
+  }
+  else if(num_years_training == 5)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015, atplist$atp2014)
+  }
+  else if(num_years_training == 6)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015, atplist$atp2014, atplist$atp2013)
+  }
+  else if(num_years_training == 7)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015, atplist$atp2014, atplist$atp2013, atplist$atp2012)
+  }
+  else if(num_years_training == 8)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015, atplist$atp2014, atplist$atp2013, atplist$atp2012, atplist$atp2011)
+  }
+  else if(num_years_training == 9)
+  {
+    temp_df <- rbind(atplist$atp2018, atplist$atp2017, atplist$atp2016, atplist$atp2015, atplist$atp2014,
+                     atplist$atp2013, atplist$atp2012, atplist$atp2011, atplist$atp2010)
+  }
+  else
+  {
+    stop("Num years must be an integer from 1-9")
+  }
+  
+  player_vec_b4 <- unique(c(temp_df$winner_id, temp_df$loser_id)) # all id's before 2019
+
+  first2019_ids <- player_vec2019[which(!is.element(player_vec2019, player_vec_b4))]
+  print(length(first2019_ids))
+  return(first2019_ids)
+}
+
+temp_vec <- clean_numYears(numYearsTraining)
+atplist <- lapply(atplist, remove_ids, vec = temp_vec)
+```
+
+
+
+# Function to calculate features by surface
+Uses training.hard, training.clay, and training.grass global datasets created from the training data.
+
+metric.w is a string for the relevant variable where the player is the winner of the match.
+metric.l is a string for the same variable where the player is the loser of the match.
+```{r}
+
+calc.surface <- function(player_id, metric.w, metric.l, surface) 
+{
+  colw.index <- which(names(training_data_temp) == metric.w)
+  if(length(colw.index) == 0) #this should never happen
+  {
+    browser()
+    stop("Error in surface function: incorrect metric provided")
+  }
+  coll.index <- which(names(training_data_temp) == metric.l)
+  if(length(coll.index) == 0) #this should never happen
+  {
+    browser()
+    stop("Error in surface function: incorrect metric provided")
+  }
+  
+  
+  # all matches on hard courts
+  tempw.hard <- training.hard[which(training.hard$winner_id == player_id),]
+  templ.hard <- training.hard[which(training.hard$loser_id == player_id),]
+  # all matches on clay courts
+  tempw.clay <- training.clay[which(training.clay$winner_id == player_id),]
+  templ.clay <- training.clay[which(training.clay$loser_id == player_id),]
+  # all matches on carpet courts
+  #tempw.carpet <- training.hard[which(training.carpet$winner_id == player_id),]
+  #templ.carpet <- training.hard[which(training.carpet$loser_id == player_id),]
+  # all matches on grass courts
+  tempw.grass <- training.grass[which(training.grass$winner_id == player_id),]
+  templ.grass <- training.grass[which(training.grass$loser_id == player_id),]
+  
+  t3 <- 0
+  t3.hard <- 0
+  t3.clay <- 0
+  #t3.carpet <- 0
+  t3.grass <- 0
+  
+  n.hard = 0
+  n.clay = 0
+  #n.carpet = 0
+  n.grass = 0
+  
+  # for matches on hard
+  if(nrow(tempw.hard) == 0 & nrow(templ.hard) == 0)
+  {
+    n.hard = -1 # player didn't play any matches on hard
+  } 
+  else if(nrow(tempw.hard) == 0) # player never won a match on hard 
+  {
+    t3.hard <- mean(templ.hard[,metric.l])
+  }
+  else if(nrow(templ.hard) == 0) # player never lost a match on hard
+  {
+    t3.hard <- mean(tempw.hard[,metric.w])
+  }
+  else # player both won and lost matches on hard
+  {
+    t1.hard <- mean(templ.hard[,metric.l])
+    t2.hard <- mean(tempw.hard[,metric.w])
+    t3.hard <- mean(c(t1.hard, t2.hard))
+  }
+  
+  
+  # for matches on clay
+  if(nrow(tempw.clay) == 0 & nrow(templ.clay) == 0)
+  {
+    n.clay = -1 # player didn't play any matches on clay
+  } 
+  else if(nrow(tempw.clay) == 0) # player never won a match on clay 
+  {
+    t3.clay <- mean(templ.clay[,metric.l])
+  }
+  else if(nrow(templ.clay) == 0) # player never lost a match on clay
+  {
+    t3.clay <- mean(tempw.clay[,metric.w])
+  }
+  else # player both won and lost matches on clay
+  {
+    t1.clay <- mean(templ.clay[,metric.l])
+    t2.clay <- mean(tempw.clay[,metric.w])
+    t3.clay <- mean(c(t1.clay, t2.clay))
+  }
+  
+  
+  # for matches on carpet
+  # if(nrow(tempw.carpet) == 0 & nrow(templ.carpet) == 0)
+  # {
+  #   n.carpet = -1 # player didn't play any matches on carpet
+  # } 
+  # else if(nrow(tempw.carpet) == 0) # player never won a match on carpet 
+  # {
+  #   t3.carpet <- mean(templ.carpet[,metric.l])
+  # }
+  # else if(nrow(templ.carpet) == 0) # player never lost a match on carpet
+  # {
+  #   t3.carpet <- mean(tempw.carpet[,metric.w])
+  # }
+  # else # player both won and lost matches on carpet
+  # {
+  #   t1.carpet <- mean(templ.carpet[,metric.l])
+  #   t2.carpet <- mean(tempw.carpet[,metric.w])
+  #   t3.carpet <- mean(c(t1.carpet, t2.carpet))
+  # }
+  
+  
+  # for matches on grass
+  if(nrow(tempw.grass) == 0 & nrow(templ.grass) == 0)
+  {
+    n.grass = -1 # player didn't play any matches on grass
+  } 
+  else if(nrow(tempw.grass) == 0) # player never won a match on grass 
+  {
+    t3.grass <- mean(templ.grass[,metric.l])
+  }
+  else if(nrow(templ.grass) == 0) # player never lost a match on grass
+  {
+    t3.grass <- mean(tempw.grass[,metric.w])
+  }
+  else # player both won and lost matches on grass
+  {
+    t1.grass <- mean(templ.grass[,metric.l])
+    t2.grass <- mean(tempw.grass[,metric.w])
+    t3.grass <- mean(c(t1.grass, t2.grass))
+  }
+  
+  
+  weighted.sum <- 0
+  #if(is.na(surface) | is.null(surface))
+  #{
+  #  browser()
+  #}
+  
+  if(surface == "Hard")
+  {
+    weighted.sum <- t3.hard + 0.4089*t3.clay + 0.5359*t3.grass
+  }
+  else if(surface == "Clay")
+  {
+    weighted.sum <- 0.4089*t3.hard + t3.clay + 0.3451*t3.grass
+  }
+  # else if(surface == "Carpet")
+  # {
+  #   weighted.sum <- 0.35*t3.hard + 0.31*t3.clay + t3.carpet + 0.25*t3.grass
+  # }
+  else if(surface == "Grass")
+  {
+    weighted.sum <- 0.5359*t3.hard + 0.3451*t3.clay + t3.grass
+  }
+  else # this should never happen
+  {
+    browser()
+    stop("Surface not recognized")
+  }
+  
+  
+  # check that player does in fact have recorded matches
+  if(n.hard + n.clay + n.grass == -3)
+  {
+    browser()
+    stop("Error in surface function: player has no recorded matches on any surface") 
+  }
+  
+  t3 <- weighted.sum/(3 + n.hard + n.clay + n.grass) # weighted mean
+  return(t3)
+}
+```
+
+
+
+# Basic features
+
+In the code below, we extract a number of features related to serving, returning, and rally ability; as well as some structural features. The probabilities are derived from proportions of previous matches. We assumed all aces to be on the 1st serve.
+
+# Service features
+
+## 1. Proportion of first serves in
+
+
+$$pr(1st\;in) =  \frac{1st\;in}{total\;1st}$$
+
+
+```{r}
+calc_1stIn_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    browser()
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_1stIn_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_1stIn_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_1stIn_prob)
+    t2 <- mean(temp2$l_1stIn_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+
+```
+
+
+## 2. Probability of serving an ace. 
+Note: assuming all aces on first serve.
+$$pr(ace) = \frac{aces}{total\;1st}$$
+```{r}
+calc_ace_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_ace_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_ace_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_ace_prob)
+    t2 <- mean(temp2$l_ace_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+
+}
+```
+
+## ?. Proportion of double faults
+
+$$pr(df) = \frac{total\;df}{service\;points} $$
+
+```{r}
+calc_df_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_df_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_df_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_df_prob)
+    t2 <- mean(temp2$l_df_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+
+```
+
+## 3. Probability of winning 1st serve, if it is not an ace, and if it is on. 
+Also gives an indication of rally ability. Double check this one. Doesn't work over aggregate.
+
+$$pr(1st\;won|1st\;in,\;not\;ace) = \frac{pr(1st\;won \cap 1st\;in \cap not\;ace)}{pr(1st\;in \cap not\;ace)}$$
+$$ = \frac{1st\;won - aces}{1st\;in - aces}$$
+
+```{r}
+calc_1stRally <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_1stRally)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_1stRally)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_1stRally)
+    t2 <- mean(temp2$l_1stRally)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+```
+
+
+## 4. Probability of winning second serve, given that it is in (and not an ace).
+Since we are assuming that all aces are on the first serve, this feature is also an indication of rally ability.
+
+$$pr(2nd\;won|2nd\;in) = \frac{2nd\;won}{2nd\;in}$$
+$$= \frac{2nd\;won}{total\;2nd-double\;faults}$$
+
+
+```{r}
+calc_2ndRally <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_2ndRally)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_2ndRally)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_1stIn_prob)
+    t2 <- mean(temp2$l_1stIn_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+```
+
+
+## 5. Probability of winning return point on opponents 1st serve, given that serve is in and not an ace.
+Complement of feature ? for opponent.
+
+```{r}
+calc_1stReturn_rally <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- 1 - mean(temp2$w_1stRally)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- 1 - mean(temp1$l_1stRally)
+  }
+  else
+  {
+    t1 <- 1 - mean(temp1$l_1stRally)
+    t2 <- 1 - mean(temp2$w_1stRally)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+```
+
+
+## 6. Probability of winning return point on opponents 2nd serve, given that serve is in (and not and ace).
+Complement of feature ? for opponent.
+
+```{r}
+calc_2ndReturn_rally <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- 1 - mean(temp2$w_2ndRally)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- 1 - mean(temp1$l_2ndRally)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_1stIn_prob)
+    t2 <- mean(temp2$l_1stIn_prob)
+    t3 <- mean(c(f1,f2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+## ?. Probability of winning point on serve
+
+```{r}
+calc_svptWon_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_svptWon_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_svptWon_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_svptWon_prob)
+    t2 <- mean(temp2$l_svptWon_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+
+## ?. Probability of winning point on return
+May be captured by the opponents probability of winning point on serve. Can look to remove
+
+```{r}
+calc_returnWon_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_returnWon_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_returnWon_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_returnWon_prob)
+    t2 <- mean(temp2$l_returnWon_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+
+## ?. Serve advantage
+From Sipkho paper
+
+```{r}
+calc_serveAdv <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_serveAdv)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_serveAdv)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_serveAdv)
+    t2 <- mean(temp2$l_serveAdv)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+  
+}
+```
+
+
+## ?. Probability losing a break point when serving
+Facing a break point refers to when a player is serving but one point away from losing the game.
+Saving a break point refers to when a player is facing a break point but wins the point.
+
+$$pr(bp\;lost) = \frac{bp\;faced-bp\;saved}{bp\;faced}$$
+If the player did not face any break points, i.e. their serve was never broken, we assign a score of 0 to this feature. The possible inaccuracy in is assignment is accounted for in the next feature.
+
+```{r}
+calc_bpLost_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_bpLost_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_bpLost_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_bpLost_prob)
+    t2 <- mean(temp2$l_bpLost_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+## ?. Frequency of break points when serving
+This refers to the proportion of break points faced to the amount of service points. Accounts for aforementioned accuracy in the previous feature. A high value for this is a bad thing for the player to which it refers, indicating that their opponent was able to return their serves very well.
+
+$$pr(bp\;created) = \frac{bp\;faced}{service\;points}$$
+
+```{r}
+calc_bpServe_freq <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_bpServe_freq)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_bpServe_freq)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_bpServe_freq)
+    t2 <- mean(temp2$l_bpServe_freq)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+
+## ?. Probability of losing a break point when returning
+This refers to when the receiving player wins a game.   
+This is the completement of feature ?. for the opponent.
+
+```{r}
+calc_bpConvert_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_bpConvert_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_bpConvert_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_bpConvert_prob)
+    t2 <- mean(temp2$l_bpConvert_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+## ?. Frequency of break points when returning
+A high value for this feature is a good thing for the player to which it refers. It indicates how often that the player had a very good returning ability against the opponents serve points. It is the complement of feature ?. for the oppponent.
+
+```{r}
+calc_bpReceive_freq <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_bpReceive_freq)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_bpReceive_freq)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_bpReceive_freq)
+    t2 <- mean(temp2$l_bpReceive_freq)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+
+## ?. Probability of winning a service game
+The probability of a player winning a service game is the complement of the probability of losing a service game.
+The probability of losing a service game is the number of break points lost divided by the number of service games.
+
+$$pr(service\;game\;won) = 1 - pr(service\;game\;lost)$$
+$$ = 1 - \frac{break\;points\;lost}{service\;games}$$
+$$ = 1 - \frac{bp\;faced-\;bp\;saved}{service\;games}$$
+```{r}
+calc_SvGmsWon_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_SvGmsWon_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_SvGmsWon_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_SvGmsWon_prob)
+    t2 <- mean(temp2$l_SvGmsWon_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+## ?. Probability of losing a return game
+The probability of winning a return game is the complement of the previous feature for the opponent.
+
+```{r}
+calc_rtnGmsWon_prob <- function(dataset, player_id)
+{
+  temp1 <- dataset[which(dataset$winner_id == player_id),]
+  temp2 <- dataset[which(dataset$loser_id == player_id),]
+  
+  t3 <- 0
+  
+  if(nrow(temp1) == 0 & nrow(temp2) == 0) #this should never happen
+  {
+    stop("Error: player_id not found")
+  }
+  else if(nrow(temp1) == 0) #if player never won a match
+  {
+    t3 <- mean(temp2$l_rtnGmsWon_prob)
+  }
+  else if(nrow(temp2) == 0) #if player never lost a match
+  {
+    t3 <- mean(temp1$w_rtnGmsWon_prob)
+  }
+  else
+  {
+    t1 <- mean(temp1$w_rtnGmsWon_prob)
+    t2 <- mean(temp2$l_rtnGmsWon_prob)
+    t3 <- mean(c(t1,t2)) #percentage of points won on serve for player i
+  }
+  
+  return(t3)
+}
+```
+
+
+## ?. Player age (included)
+
+
+## ?. ATP points (included)
+
+
+## ?. ATP ranking (included)
+
+
+## ?. Time discount
+The weight given to each match is assigned by the following formula:
+
+$$W(t) = min(f^t, f)$$ 
+Where, 
+t = time since the match (in years)
+f = discount factor, $0<f<1$
+
+The min function is necessary to assign all the matches in the past year the same weight of f.
+
+We are using a discount factor of 0.8
+
+The curDate argument is the current date. It must be in the format "yyyymmdd".
+
+```{r}
+timediscount <- function(dataset, discount_factor, curDate)
+{
+  
+  matchDate_vec = ymd(dataset$tourney_date)
+  curDate_vec = rep(ymd(curDate), length(matchDate_vec))
+  
+  diff_years = interval(matchDate_vec, curDate_vec)/years(1)
+  
+  fact_vec = c(rep(discount_factor, nrow(dataset)))
+  time_exp = fact_vec ^ diff_years
+  
+  both = cbind(time_exp, fact_vec)
+  weight = apply(both, 1, FUN=min)
+  
+  dataset$timeDiscount = weight
+  
+  return(dataset)
+}
+
+#adding the time discount feature to the training dataset
+discount_factor = 0.8
+curDate = "20200101"
+atplist <- lapply(atplist, timediscount, discount_factor, curDate)
+
+```
+
+
+Matches are filtered by surface.
+NB: run clean(atplist) after matches are filtered by surface.
+
+
+
+# Final feature set for training
+Thus, we have a feature set, with completely cleaned data.
+
+```{r}
+remove_cols_3 <- function(x)
+{
+  new <- x[,-which(names(x) %in% c("tourney_id", "surface","tourney_name", "tourney_level", "tourney_date", "match_num", "winner_id", "loser_id", "winner_name","loser_name", "w_total_2nd", "l_total_2nd", "w_2ndLost", "l_2ndLost", "w_1stWon_prob", "l_1stWon_prob", "w_2ndWon_prob", "l_2ndWon_prob", "w_1stWon_givenIn_prob", "l_1stWon_givenIn_prob"))]
+  return(new)
+  
+}
+
+features_temp1 <- lapply(atplist, remove_cols_3)
+```
+
+# Split data by surface
+This is done to make it easier to apply the surface weightings. The surface weighting matrix is given by... MAKE TABLE.
+
+```{r}
+training_data_temp <- bind_rows(atplist[-1])
+hard.index <- which(training_data_temp$surface == "Hard")
+clay.index <- which(training_data_temp$surface == "Clay")
+carpet.index <- which(training_data_temp$surface == "Carpet")
+grass.index <- which(training_data_temp$surface == "Grass")
+
+training.hard <- training_data_temp[hard.index,]
+training.clay <- training_data_temp[clay.index,]
+training.carpet <- training_data_temp[carpet.index,]
+training.grass <- training_data_temp[grass.index,]
+```
+
+
+# Output
+There will be two output columns, p1_won and p2_won, for whether player 1 won or player 2 won respectively. Each column is a binary vector, with each element taking on values of 1 or 0, for whether that player won or lost respectively. For machine learning methods, these must be separate columns and cannot be combined into two columns. This is referred to as one-hot encoding.
+
+In order to not have the machine learning models predict the same output every time, we have to assign the winner and loser randomly to be player 1 and player 2.
+We randomly choose between two numbers, 0 and 1, with equal probability. If 1 is chosen, the winner is assigned to be player 1, and thus the column p1_won will have a value of 1 and p2_won will be 0. Conversely, if 0 is chosen, the loser is assigned to be player 1, and thus p1_won will be 0 and p2_won will be 1.
+
+```{r}
+create_output <- function(x) #randomly assign winner and loser to p1 and p2
+{
+  
+  random <- sample(c(0,1), size = nrow(x),replace = T, prob = c(0.5,0.5))
+  
+  x <- transform(x,
+                 age = ifelse(random == 1, winner_age - loser_age, loser_age - winner_age),
+                 rank = ifelse(random == 1, winner_rank - loser_rank, loser_rank - winner_rank),
+                 rank_points = ifelse(random == 1, winner_rank_points - loser_rank_points, loser_rank_points - winner_rank_points),
+                 firstIn_prob = ifelse(random == 1, w_1stIn_prob - l_1stIn_prob, l_1stIn_prob - w_1stIn_prob), 
+                 ace_prob = ifelse(random == 1, w_ace_prob - l_ace_prob, l_ace_prob - w_ace_prob), 
+                 df_prob = ifelse(random == 1, w_df_prob - l_df_prob, l_df_prob - w_df_prob),
+                 firstRally = ifelse(random == 1, w_1stRally - l_1stRally, l_1stRally - w_1stRally),
+                 secondRally = ifelse(random == 1, w_2ndRally  - l_2ndRally, l_2ndRally - w_2ndRally),
+                 svptWon_prob = ifelse(random ==1, w_svptWon_prob - l_svptWon_prob, l_svptWon_prob - w_svptWon_prob),
+                 returnWon_prob = ifelse(random == 1, w_returnWon_prob - l_returnWon_prob, l_returnWon_prob - w_returnWon_prob),
+                 serveAdv = ifelse(random == 1, w_serveAdv - l_serveAdv, l_serveAdv - w_serveAdv),
+                 bpLost_prob = ifelse(random == 1, w_bpLost_prob - l_bpLost_prob, l_bpLost_prob - w_bpLost_prob),
+                 bpServe_freq = ifelse(random == 1, w_bpServe_freq - l_bpServe_freq, l_bpServe_freq - w_bpServe_freq),
+                 bpConvert_prob = ifelse(random ==1, w_bpConvert_prob - l_bpConvert_prob, l_bpConvert_prob - w_bpConvert_prob),
+                 bpReceive_freq = ifelse(random ==1, w_bpReceive_freq - l_bpReceive_freq, l_bpReceive_freq - w_bpReceive_freq),
+                 SvGmsWon_prob = ifelse(random == 1, w_SvGmsWon_prob - l_SvGmsWon_prob, l_SvGmsWon_prob - w_SvGmsWon_prob),
+                 rtnGmsWon_prob = ifelse(random == 1, w_rtnGmsWon_prob - l_rtnGmsWon_prob, l_rtnGmsWon_prob - w_rtnGmsWon_prob)
+                 )
+  x$p1_won <- ifelse(random == 1, 1, 0)
+  x$p2_won <- ifelse(random == 0, 1, 0)
+  
+  return(x)
+}
+
+remove_cols_4 <- function(x)
+{
+  x <- x[,-which(names(x) %in% c("winner_age", "loser_age", "winner_rank", "loser_rank", "winner_rank_points", "loser_rank_points", "w_1stIn_prob", "l_1stIn_prob", "w_ace_prob", "l_ace_prob", "w_df_prob", "l_df_prob", "w_1stRally", "l_1stRally", "w_2ndRally","l_2ndRally", "w_1stRally_return", "l_1stRally_return", "w_2ndRally_return", "l_2ndRally_return", "w_svptWon_prob", "l_svptWon_prob", "w_returnWon_prob", "l_returnWon_prob", "w_serveAdv", "l_serveAdv", "w_bpLost_prob", "l_bpLost_prob", "w_bpServe_freq", "l_bpServe_freq", "w_bpConvert_prob", "l_bpConvert_prob", "w_bpReceive_freq", "l_bpReceive_freq", "w_SvGmsWon_prob", "l_SvGmsWon_prob", "w_rtnGmsWon_prob", "l_rtnGmsWon_prob"))]
+  return(x)
+}
+set.seed(2020)
+features_temp2 <- lapply(features_temp1, create_output)
+features <- lapply(features_temp2, remove_cols_4)
+
+#check features for NA values
+lapply(features, which_na)
+```
+
+
+# Creating the testing data
+The testing data will be all the matches in 2019. For these matches, we will not know most of the features beforehand e.g. serve and return features. The estimations of these features are worked out using the training data.
+
+```{r}
+calc_testing_data <- function(x) # x refers to testing data.
+{
+  #The following we can use from that record:
+  #timeDiscount
+  #w_age, l_age
+  #w_rank, l_rank
+  #w_rank_points, l_rank_points
+
+  
+  for(i in 1:nrow(x))
+  {
+     #temp <- x[i,]
+     x$w_1stIn_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_1stIn_prob", metric.l = "l_1stIn_prob", surface = x$surface[i])
+     x$l_1stIn_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_1stIn_prob", metric.l = "l_1stIn_prob", surface = x$surface[i])
+     x$w_ace_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_ace_prob", metric.l = "l_ace_prob", surface = x$surface[i])
+     x$l_ace_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_ace_prob", metric.l = "l_ace_prob", surface = x$surface[i])
+     x$w_df_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_df_prob", metric.l = "l_df_prob", surface = x$surface[i])
+     x$l_df_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_df_prob", metric.l = "l_df_prob", surface = x$surface[i])
+     x$w_1stRally[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_1stRally", metric.l = "l_1stRally", surface = x$surface[i])
+     x$l_1stRally[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_1stRally", metric.l = "l_1stRally", surface = x$surface[i])
+     x$w_2ndRally[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_2ndRally", metric.l = "l_2ndRally", surface = x$surface[i])
+     x$l_2ndRally[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_2ndRally", metric.l = "l_2ndRally", surface = x$surface[i])
+     x$w_svptWon_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_svptWon_prob", metric.l = "l_svptWon_prob", surface = x$surface[i])
+     x$l_svptWon_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_svptWon_prob", metric.l = "l_svptWon_prob", surface = x$surface[i])
+     x$w_returnWon_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_returnWon_prob", metric.l = "l_returnWon_prob", surface = x$surface[i])
+     x$l_returnWon_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_returnWon_prob", metric.l = "l_returnWon_prob", surface = x$surface[i])
+     x$w_serveAdv[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_serveAdv", metric.l = "l_serveAdv", surface = x$surface[i])
+     x$l_serveAdv[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_serveAdv", metric.l = "l_serveAdv", surface = x$surface[i])
+     x$w_bpLost_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_bpLost_prob", metric.l = "l_bpLost_prob", surface = x$surface[i])
+     x$l_bpLost_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_bpLost_prob", metric.l = "l_bpLost_prob", surface = x$surface[i])
+     x$w_bpServe_freq[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_bpServe_freq", metric.l = "l_bpServe_freq", surface = x$surface[i])
+     x$l_bpServe_freq[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_bpServe_freq", metric.l = "l_bpServe_freq", surface = x$surface[i])
+     x$w_bpConvert_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_bpConvert_prob", metric.l = "l_bpConvert_prob", surface = x$surface[i])
+     x$l_bpConvert_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_bpConvert_prob", metric.l = "l_bpConvert_prob", surface = x$surface[i])
+     x$w_bpReceive_freq[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_bpReceive_freq", metric.l = "l_bpReceive_freq", surface = x$surface[i])
+     x$l_bpReceive_freq[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_bpReceive_freq", metric.l = "l_bpReceive_freq", surface = x$surface[i])
+     x$w_SvGmsWon_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_SvGmsWon_prob", metric.l = "l_SvGmsWon_prob", surface = x$surface[i])
+     x$l_SvGmsWon_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_SvGmsWon_prob", metric.l = "l_SvGmsWon_prob", surface = x$surface[i])
+     x$w_rtnGmsWon_prob[i] = calc.surface(player_id =  x$winner_id[i], metric.w = "w_rtnGmsWon_prob", metric.l = "l_rtnGmsWon_prob", surface = x$surface[i])
+     x$l_rtnGmsWon_prob[i] = calc.surface(player_id =  x$loser_id[i], metric.w = "w_rtnGmsWon_prob", metric.l = "l_rtnGmsWon_prob", surface = x$surface[i])
+     #training_data <- bind_rows(temp, training_data)
+  }
+  
+  return(x)
+}
+
+
+
+
+
+#training_data_temp <- bind_rows(atplist[-1]) # line is now earlier
+
+testing_data1 <- calc_testing_data(atplist$atp2019) 
+testing_data2 <- remove_cols_3(testing_data1)
+set.seed(2021)
+testing_data3 <- create_output(testing_data2)
+testing_data4 <- remove_cols_4(testing_data3)
+
+training_data1 <- bind_rows(features[-1])
+```
+
+
+# multiplying time discount into each column, then removing time discount
+
+```{r}
+#for testing data
+timeD_test <- testing_data4$timeDiscount
+#so we don't multiply who won and lost
+p1_won.test <- testing_data4$p1_won
+p2_won.test <- testing_data4$p2_won
+#so we don't multiply rank, rank_points, and age
+rank.test <- testing_data4$rank
+rank_points.test <- testing_data4$rank_points
+age.test <- testing_data4$age
+
+testing_data5 <- testing_data4 * timeD_test
+testing_data5$p1_won <- p1_won.test
+testing_data5$p2_won <- p2_won.test
+testing_data5$rank <- rank.test
+testing_data5$rank_points <- rank_points.test
+testing_data5$age <- age.test
+
+testing_data6 <- testing_data5[,-which(names(testing_data5) == "timeDiscount")]
+
+
+#similarly, for training data
+timeD_training <- training_data1$timeDiscount
+p1_won.training <- training_data1$p1_won
+p2_won.training <- training_data1$p2_won
+
+rank.train <- training_data1$rank
+rank_points.train <- training_data1$rank_points
+age.train <- training_data1$age
+
+training_data2 <- training_data1 * timeD_training
+training_data2$p1_won <- p1_won.training
+training_data2$p2_won <- p2_won.training
+training_data2$rank <- rank.train
+training_data2$rank_points <- rank_points.train
+training_data2$age <- age.train
+training_data3 <- training_data2[,-which(names(training_data2) == "timeDiscount")]
+```
+
+# Standardizing the variables
+
+```{r}
+standardizer <- function(x)
+{
+ x$age <- x$age/sd(x$age)
+ x$rank <- x$rank/sd(x$rank)
+ x$rank_points <- x$rank_points/sd(x$rank_points)
+ return(x)
+}
+
+testing_data <- standardizer(testing_data6)
+training_data <- standardizer(training_data3)
+```
+
+
+
+
+# Saving the data
+```{r}
+setwd(getwd())
+write.csv(training_data,"./train_test_data/surfaceCorr_training.csv", row.names = FALSE)
+write.csv(testing_data,"./train_test_data/surfaceCorr_testing.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
